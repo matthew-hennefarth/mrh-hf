@@ -13,7 +13,7 @@ def E(i, j, t, R, alpha, beta):
     p = alpha + beta
     q = alpha * beta / p
 
-    if t < 0 or t > i + j:
+    if t < 0 or (t > (i + j)):
         return 0
 
     elif i == 0 and j == 0 and t == 0:
@@ -54,17 +54,31 @@ class contracted_gto:
                 2 * self.shell[1] - 1) / fact2(2 * self.shell[2] - 1) / np.power(np.pi, 1.5)
         )
 
+        # l, m, n = self.shell
+        # pre = np.power(np.pi, 1.5)* fact2(2*l-1)*fact2(2*m-1)*fact2(2*n-1)/np.power(2.0,L)
+        #
+        # norm = 0.0
+        # for i in range(len(self.exponents)):
+        #     for j in range(len(self.exponents)):
+        #         norm += self.norm[i]*self.norm[j]*self.contractions[i]*self.contractions[j]/np.power(self.exponents[i]+self.exponents[j], L+1.5)
+        #
+        # norm *= pre
+        # norm = np.power(norm, -0.5)
+        # for i in range(len(self.exponents)):
+        #     self.contractions[i] *= norm
+
         # could be done cheaper...but this should work in all honesty
+
         norm = np.sqrt(self.overlap(self))
         self.contractions = [c / norm for c in self.contractions]
 
     def overlap(self, other_gto):
-        s = 0
+        s = 0.0
         for i, ci in enumerate(self.contractions):
             for j, cj in enumerate(other_gto.contractions):
-                s += ci * cj * primitive_gto_overlap(self.exponents[i], self.shell,
+                s += self.norm[i]*other_gto.norm[j]*ci * cj * primitive_gto_overlap(self.exponents[i], self.shell,
                                                      self.center,
-                                                     other_gto.exponents[i],
+                                                     other_gto.exponents[j],
                                                      other_gto.shell,
                                                      other_gto.center)
         return s

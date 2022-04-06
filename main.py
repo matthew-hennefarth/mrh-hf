@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import sys
 
 from gto import *
+
+ANG_TO_BOHR = 1.88973
 
 def read_xyz_file(file_name: str):
     lines = []
@@ -17,7 +20,7 @@ def read_xyz_file(file_name: str):
     for line in lines[2:2+num_atoms]:
         line = line.split(" ")
         element = line[0]
-        coordinate = [float(l) for l in line[1:]]
+        coordinate = [ANG_TO_BOHR*float(l) for l in line[1:]]
         coordinate = np.asarray(coordinate)
         structure.append((element, coordinate))
 
@@ -29,9 +32,18 @@ def generate_aos(structure, basis_set):
         element = atom[0]
         coordinate = atom[1]
         for orbital_type in basis_set[element]:
+            if orbital_type == "S":
+                possible_shells = [(0,0,0)]
+            elif orbital_type == "P":
+                possible_shells = [(1, 0, 0), (0, 1, 0), (0,0,1)]
+            else:
+                print("ERRORROROROR")
+                sys.exit(1)
+
             for contracted_ao in basis_set[element][orbital_type]:
-                aos.append(contracted_gto(contracted_ao[0], contracted_ao[1],
-                                          shell=(0, 0, 0), center=coordinate))
+                for shell in possible_shells:
+                    aos.append(contracted_gto(contracted_ao[0], contracted_ao[1],
+                                          shell=shell, center=coordinate))
 
     return aos
 
@@ -44,8 +56,11 @@ def main():
     aos = generate_aos(structure, basis_set)
 
     for a in aos:
+        s = ""
         for b in aos:
-            print(a.overlap(b))
+            s += f" {a.overlap(b)}"
+
+        print(s)
 
 if __name__ == "__main__":
     main()
