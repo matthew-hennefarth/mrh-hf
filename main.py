@@ -2,9 +2,10 @@
 
 import numpy as np
 
-
 def read_basis_file(file_name: str):
+
     basis_set = {}
+
     with open(file_name, 'r') as basis_file:
         begin_read = False
         orbitals = []
@@ -18,11 +19,13 @@ def read_basis_file(file_name: str):
                     basis_set[atom][orbital] = []
 
                 basis_set[atom][orbital].append((exponents, [c[index] for c in contractions]))
-            
 
         for line in basis_file:
             line = line.strip("\n")
             if not begin_read and line.startswith("BASIS \"ao basis\" SPHERICAL PRINT"):
+                line = line.split("\"")
+                basis_set["title"] = line[1]
+                # line_info = [l for l in line[2].split(" ") if l]
                 begin_read = True
 
             elif not line or line.startswith("#"):
@@ -33,10 +36,11 @@ def read_basis_file(file_name: str):
 
             elif begin_read:
                 line = line.split(" ")
-                line = [l for l in line if len(l)]
+                line = [l for l in line if l]
                 try:
                     vals = [float(l) for l in line]
                     line = vals
+
                 except:
                     pass
 
@@ -67,9 +71,38 @@ def read_basis_file(file_name: str):
 
     return basis_set
 
+def read_xyz_file(file_name: str):
+    lines = []
+    with open(file_name, 'r') as xyz_file:
+        for line in xyz_file:
+            line = line.strip("\n")
+            lines.append(line)
+
+    num_atoms = int(lines[0])
+
+    structure = []
+    for line in lines[2:2+num_atoms]:
+        line = line.split(" ")
+        element = line[0]
+        coordinate = np.asarray(line[1:])
+        structure.append((element, coordinate))
+
+    return structure
+
+def generate_aos(structure, basis_set):
+    # ((l_x,l_y,l_z), center, (alpha's), (contractions))
+    aos = []
+    for atom in structure:
+        element = atom[0]
+        coordinate = atom[1]
+
+
 
 def main():
-    print(read_basis_file("basis_file")) 
+    basis_set = read_basis_file("basis_file")
+    structure = read_xyz_file("tmp.xyz")
+
+    aos = generate_aos(structure, basis_set)
 
 
 if __name__ == "__main__":
