@@ -2,6 +2,35 @@
 
 import numpy as np
 
+from scipy.special import factorial2 as fact2
+
+class contracted_gto:
+
+    def __init__(self, exponents, contractions, shell=(0,0,0), center=np.array([0,0,0])):
+        self.exponents = exponents
+        self.contractions = contractions
+        self.shell = shell
+        self.center = center
+        self.norm = None
+        self.normalize()
+
+    def normalize(self):
+        L = sum(self.shell)
+        
+        # Normalize primitive gaussians
+        self.norm = np.sqrt(np.power(2,2*L+1.5) * np.power(self.exponents, L+1.5)/fact2(2*self.shell[0]-1)/fact2(2*self.shell[1]-1)/fact2(2*self.shell[2]-1)/np.power(np.pi, 1.5))
+
+        normalization = 0.0
+        for i in range(len(self.exponents)):
+            for j in range(len(self.exponents)):
+                normalization += self.norm[i]*self.norm[j]*self.contractions[i]*self.contractions[j]/np.power(self.exponents[i]+self.exponents[j], L+1.5)
+
+        normalization *= np.power(np.pi, 1.5)*fact2(2*self.shell[0]-1)*fact2(2*self.shell[1]-1)*fact2(2*self.shell[2]-1)/np.power(2.0, L) 
+        normalization = np.power(normalization, -0.5) 
+        self.coefs *= normalization
+
+    
+
 def read_basis_file(file_name: str):
 
     basis_set = {}
