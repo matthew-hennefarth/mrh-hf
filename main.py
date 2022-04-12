@@ -47,7 +47,14 @@ def generate_aos(structure, basis_set):
 
     return aos
 
+def construct_overlap_matrix(aos):
+    s = np.zeros((len(aos),len(aos)))
+    for i in range(len(aos)):
+        for j in range(i,len(aos)):
+            s[i][j] = aos[i].overlap(aos[j])
+            s[j][i] = s[i][j]
 
+    return s
 
 def main():
     basis_set = read_basis_file("basis_file")
@@ -55,12 +62,8 @@ def main():
 
     aos = generate_aos(structure, basis_set)
 
-    for a in aos:
-        s = ""
-        for b in aos:
-            s += f" {a.overlap(b)}"
-
-        print(s)
+    overlap = construct_overlap_matrix(aos)
+    print(overlap)
 
 if __name__ == "__main__":
     main()
