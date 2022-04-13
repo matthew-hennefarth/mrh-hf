@@ -35,6 +35,7 @@ def construct_density(mos, n_elecs):
     for mu in range(len(mos)):
         for nu in range(mu,len(mos)):
             s = 0
+            # we only go over occupied orbitals
             for k in range(occupied):
                 s += mos[mu][k] * mos[nu][k]
 
@@ -44,24 +45,14 @@ def construct_density(mos, n_elecs):
     return density
 
 def electronic_energy(density, core, fock):
-    rows = len(density)
-    energy = 0
-    for mu in range(rows):
-        for nu in range(rows):
-            energy += density[mu][nu]*(core[mu][nu] + fock[mu][nu])
-
-    return energy
-
+    # sum_{mu,nu} D_{mu,nu}(Core_{mu,nu} + Fock_{mu,nu})
+    return np.sum(np.sum(density*(core+fock)))
 
 def density_rmsd(den, old_den):
-    rmsd = 0
+    # sqrt{sum_{ij} (D_{ij} - Dnew_{ij})^2}
     diff = den - old_den
-    for row in diff:
-        for i in row:
-            rmsd += i*i
-
-    rmsd = np.sqrt(rmsd)
-    return rmsd
+    rmsd = np.sum(np.sum(diff*diff))
+    return np.sqrt(rmsd)
 
 def print_matrix(mat):
     s = "   "
@@ -79,6 +70,8 @@ def print_matrix(mat):
 # offers canonical diagonalization
 def diagonalize(matrix):
     eigenvalues, eigenvectors = np.linalg.eig(matrix)
+    # I hate numpy for not automatically sorting eigenvalues/eigenvectors by smallest value
+    # this fixes this so that we don't have issues later on...so stupid
     idx = eigenvalues.argsort()
     eigenvalues = eigenvalues[idx]
     eigenvectors = eigenvectors[:,idx]
@@ -86,12 +79,11 @@ def diagonalize(matrix):
     return eigenvalues, eigenvectors
 
 def rhf(mol, e_thr=-6, dens_thr=-6, max_scf=125):
+    print("Computing 1e and 2e integrals...")
     mol.build()
 
-    nuclear_energy = mol.energy_nuc()
-
     kin = mol.intor('int1e_kin', aosym='s1')
-    print("---- [Kinetic Energy Matrix] ----")
+    print("\n---- [Kinetic Energy Matrix] ----")
     print_matrix(kin)
     
     vnuc = mol.intor('int1e_nuc', aosym='s1')
@@ -126,7 +118,6 @@ def rhf(mol, e_thr=-6, dens_thr=-6, max_scf=125):
     C = sym_ortho.dot(C_prime)
     print("\n")
     print("--------- [Initial MOs] ---------")
-    print(e)
     print_matrix(C)
 
     density = construct_density(C, mol.nelectron)
@@ -136,9 +127,13 @@ def rhf(mol, e_thr=-6, dens_thr=-6, max_scf=125):
 
     energy = electronic_energy(density, core, core)
     print(f"\nInitial Electronic Energy: {energy:.10f}")
+    nuclear_energy = mol.energy_nuc()
     print(f"Nuclear-Nuclear Repulsion: {nuclear_energy:.10f}")
 
     print("\nStarting SCF procedure...\n")
+    print(f"Energy Threshold: 10e{e_thr}")
+    print(f"Density Threshold: 10e{dens_thr}")
+    print(f"Max SCF: {max_scf}\n")
     converged = False
     for i in range(max_scf):
         if i == 0:
@@ -166,24 +161,29 @@ def rhf(mol, e_thr=-6, dens_thr=-6, max_scf=125):
         if converged:
             break
 
+    if converged:
+        print(f"SCF Converged in {i} iterations")
+   
+    else:
+        print(f"SCF did not Converge in {i} iterations")
+        print("Try increasing SCF iterations...")
+
+    print("\nFinal Data")
+    print(f"Final Electronic Energy: {energy:.10f}")
+    print(f"Final Total Energy: {energy+nuclear_energy:.10f}")
+
+    print("\n")
+    print("---------- [Final MOs] ----------")
+    print_matrix(C)
+
 def main():
     mol = gto.M(atom = '''O 0 -0.14322 0; H 1.63803 1.13654 0; H -1.63803 1.13654 0''',
             basis = 'sto-3g', unit="Bohr")
-
-    #mol = gto.M(atom = '''O 0 0 0.116; H 0 0.751 -0.465; H 0 -0.751 -0.465''',
-    #        basis = 'sto-3g')
-
-    #mol = gto.M(atom = '''
-    #        C    3.402   0.773  -9.252 
-    #        C    4.697   0.791  -8.909 
-    #        H    2.933  -0.150  -9.521 
-    #        H    2.837   1.682  -9.258 
-    #        H    5.262  -0.118  -8.904 
-    #        H    5.167   1.714  -8.641
-    #        ''', basis = 'sto-3g')
 
     rhf(mol)
 
 
 if __name__ == "__main__":
     main()
+
+
