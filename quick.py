@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
-from pyscf import gto
+import math
 import numpy as np
+
+from pyscf import gto
 
 def construct_core(kin, nuc):
     return kin + nuc
@@ -20,76 +22,167 @@ def construct_G(two_e_int, density):
                     correlation = two_e_int[mu][nu][sigma][lam]
                     exchange = two_e_int[mu][lam][sigma][nu]
 
-                    e_e_repulsion_component += dens * (correlation - 0.5 * exchange)
+                    e_e_repulsion_component += dens * (2*correlation - exchange)
 
             G[mu][nu] = e_e_repulsion_component
 
     return G
 
-def construct_density(mos):
+def construct_density(mos, n_elecs):
     density = np.zeros((len(mos), len(mos)))
-    for i in range(len(mos)):
-        for j in range(i,len(mos)):
+    occupied = int(n_elecs/2)
+    
+    for mu in range(len(mos)):
+        for nu in range(mu,len(mos)):
             s = 0
-            for k in range(len(mos[i])):
-                s += mos[i][k] * mos[j][k]
+            for k in range(occupied):
+                s += mos[mu][k] * mos[nu][k]
 
-            density[i][j] = 2*s
-            #density[i][j] = 2*mos[i].dot(mos[j])
-            density[j][i] = density[i][j]
+            density[mu][nu] = s
+            density[nu][mu] = s
     
     return density
 
-def main():
-    mol = gto.M(atom = '''O 0 0 0; H 0 0.751 -0.465; H 0 -0.751 -0.465''',
-            basis = 'sto-3g')
+def electronic_energy(density, core, fock):
+    rows = len(density)
+    energy = 0
+    for mu in range(rows):
+        for nu in range(rows):
+            energy += density[mu][nu]*(core[mu][nu] + fock[mu][nu])
+
+    return energy
+
+
+def density_rmsd(den, old_den):
+    rmsd = 0
+    diff = den - old_den
+    for row in diff:
+        for i in row:
+            rmsd += i*i
+
+    rmsd = np.sqrt(rmsd)
+    return rmsd
+
+def print_matrix(mat):
+    s = "   "
+    for i in range(len(mat)):
+        s += f"{i:^10}"
+    
+    print(s)
+    
+    for i,r in enumerate(mat):
+        s = f"{i:<3}"
+        for c in r:
+            s += f"{c:9.5f} " 
+        print(s)
+
+# offers canonical diagonalization
+def diagonalize(matrix):
+    eigenvalues, eigenvectors = np.linalg.eig(matrix)
+    idx = eigenvalues.argsort()
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:,idx]
+
+    return eigenvalues, eigenvectors
+
+def rhf(mol, e_thr=-6, dens_thr=-6, max_scf=125):
     mol.build()
-    mol.spin = 1
-    mol.charge = 0
+
+    nuclear_energy = mol.energy_nuc()
+
+    kin = mol.intor('int1e_kin', aosym='s1')
+    print("---- [Kinetic Energy Matrix] ----")
+    print_matrix(kin)
     
-    kin = mol.intor('int1e_kin')
-    vnuc = mol.intor('int1e_nuc')
-    overlap = mol.intor('int1e_ovlp')
+    vnuc = mol.intor('int1e_nuc', aosym='s1')
+    print("\n")
+    print("--------- [VNuc Matrix] ---------")
+    print_matrix(vnuc)
+    
+    overlap = mol.intor('int1e_ovlp', aosym='s1')
+    print("\n")
+    print("------- [Overlap Matrix] --------")
+    print_matrix(overlap)
+    
     eri = mol.intor('int2e', aosym='s1')
+    core = construct_core(kin, vnuc)
 
-    initial_mos = np.array([
-            np.array([0.994123, 0.025513, 0, 0, -0.002910, -0.005147, -0.005147]),
-            np.array([-0.232461, 0.833593, 0,0,-0.140863, 0.155621, 0.155621]),
-            np.array([0,0,0,0.607184, 0, 0.444175, -0.444175]),
-            np.array([-0.107246, 0.556639, 0, 0, 0.766551, -0.285923, -0.285923]),
-            np.array([0,0,0,0,0,0,0]),
-            np.array([0,0,0,0,0,0,0]),
-            np.array([0,0,0,0,0,0,0])
-            ])
+    print("\n")
+    print("--------- [Core Matrix] ---------")
+    print_matrix(core)
 
-    density = construct_density(initial_mos)
-
-    s,U = np.linalg.eigh(overlap)
-    s = [1.0/np.sqrt(i) for i in s]
-    s = np.array(s)
-    s = np.diag(s)
+    lam, L = diagonalize(overlap)
+    lam = 1.0/np.sqrt(lam)
+    sym_ortho = L.dot(np.diag(lam).dot(L.T))
+    sym_ortho_t = sym_ortho.T
     
-    X = np.matmul(U, s)
-    X_adj = np.conj(X).T
+    print("\n")
+    print("-------- [S^-1/2 Matrix] --------")
+    print_matrix(sym_ortho)
 
-    core = construct_core(kin, vnuc)    
-
-    for i in range(10):
-        G = construct_G(eri, density)
-        fock = core + G
-        t_fock = np.matmul(X_adj, np.matmul(fock, X))
-
-        e,c = np.linalg.eig(t_fock)
-
-        c = np.matmul(X,c)
-        
-        new_density = construct_density(c.T)
-
-        # check to see if converged
-
+    # Initial guess
+    fock = sym_ortho_t.dot(core.dot(sym_ortho)) 
+    e,C_prime = diagonalize(fock)
+    C = sym_ortho.dot(C_prime)
+    print("\n")
+    print("--------- [Initial MOs] ---------")
     print(e)
-#   print(c)
+    print_matrix(C)
 
+    density = construct_density(C, mol.nelectron)
+    print("\n")
+    print("------- [Initial Density] -------")
+    print_matrix(density)
+
+    energy = electronic_energy(density, core, core)
+    print(f"\nInitial Electronic Energy: {energy:.10f}")
+    print(f"Nuclear-Nuclear Repulsion: {nuclear_energy:.10f}")
+
+    print("\nStarting SCF procedure...\n")
+    converged = False
+    for i in range(max_scf):
+        if i == 0:
+            print(f"{'Iter':^5} {'E (elec)':^20} {'E Tot':^20} {'Delta E':^20} {'RMS D': ^20} {'Converged?': ^10}")
+            print("-------------------------------------------------------------------------------------------------------") 
+        fock = core + construct_G(eri, density)
+        tfock = sym_ortho_t.dot(fock.dot(sym_ortho))
+
+        e, C_prime = diagonalize(tfock)
+        C = sym_ortho.dot(C_prime)
+        
+        new_density = construct_density(C,mol.nelectron)
+        new_energy = electronic_energy(new_density, core, fock)
+       
+        rmsd = density_rmsd(new_density, density) 
+        delta_e = new_energy - energy
+        energy = new_energy
+
+        if np.abs(rmsd) < math.pow(10, dens_thr) and np.abs(delta_e) < math.pow(10,e_thr):
+            converged = True
+
+        density = new_density
+        
+        print(f"{i:^5} {new_energy:18.10f} {new_energy+nuclear_energy:18.10f} {delta_e:18.10f} {rmsd:18.10f} {'Yes' if converged else 'No':>10}")
+        if converged:
+            break
+
+def main():
+    mol = gto.M(atom = '''O 0 -0.14322 0; H 1.63803 1.13654 0; H -1.63803 1.13654 0''',
+            basis = 'sto-3g', unit="Bohr")
+
+    #mol = gto.M(atom = '''O 0 0 0.116; H 0 0.751 -0.465; H 0 -0.751 -0.465''',
+    #        basis = 'sto-3g')
+
+    #mol = gto.M(atom = '''
+    #        C    3.402   0.773  -9.252 
+    #        C    4.697   0.791  -8.909 
+    #        H    2.933  -0.150  -9.521 
+    #        H    2.837   1.682  -9.258 
+    #        H    5.262  -0.118  -8.904 
+    #        H    5.167   1.714  -8.641
+    #        ''', basis = 'sto-3g')
+
+    rhf(mol)
 
 
 if __name__ == "__main__":
